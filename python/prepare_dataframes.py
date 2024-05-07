@@ -56,10 +56,11 @@ variables = [
 
 df = tree.pandas.df(variables)
 
+df['hh_deta'] = abs(df['h1_eta']-df['h2_eta'])
+
 sig_box = df['wt_box'].sum()/len(df)
 sig_Sh = df['wt_schannel_h'].sum()/len(df)
 sig_int = df['wt_box_and_schannel_h_i'].sum()/len(df)
-
 sig_SM = sig_box+sig_Sh+sig_int
 
 print(sig_SM, sig_box, sig_Sh, sig_int)
@@ -69,9 +70,12 @@ df['kaplam'] = np.random.uniform(-5, 10, size=len(df))
 # define an event weight based on this value of kappa lambda according to:
 # wt = wt_box + wt_schannel_h*kaplam**2 + wt_box_and_schannel_h_i*kaplam
 # we then scale these down by the total cross section for this value of kappa lambda relative to the SM value
-df['weight'] = df['wt_box'] + df['wt_schannel_h']*df['kaplam']**2 + df['wt_box_and_schannel_h_i']*df['kaplam'] * sig_SM / (sig_box + sig_Sh*df['kaplam']**2 + sig_int*df['kaplam']) 
 
-print(df[['wt_box','wt_schannel_h','wt_box_and_schannel_h_i','kaplam','weight']][:10])
+#df['cross_sec_weight'] = sig_box + sig_Sh*df['kaplam']**2 + sig_int*df['kaplam'] 
+
+df['weight'] = (df['wt_box'] + df['wt_schannel_h']*df['kaplam']**2 + df['wt_box_and_schannel_h_i']*df['kaplam']) / (sig_box + sig_Sh*df['kaplam']**2 + sig_int*df['kaplam']) * sig_SM
+
+#print(df[['wt_box','wt_schannel_h','wt_box_and_schannel_h_i','kaplam','weight']][:10])
 
 # save dataframe
 
@@ -96,7 +100,6 @@ def Plot2DHist(df, varx, vary):
   extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
 
   # Plot the heatmap on the corresponding subplot
-  #ax.imshow(heatmap.T, origin='lower', extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]], cmap='hot')
   plt.imshow(heatmap.T, origin='lower', cmap='hot', extent=extent, aspect='auto')
   plt.xlabel(varx)
   plt.ylabel(vary)
@@ -107,13 +110,51 @@ def Plot2DHist(df, varx, vary):
 # make a plot looking at correlation between kappalam and the di-Higgs mass
 Plot2DHist(df, 'kaplam', 'hh_mass')
 
-def Plot1D(df, var):
+def Plot1DWtVsUnWt(df, var, extra_name=''):
 
-    lim_min = np.percentile(X[var], 2.5)
-    lim_max = np.percentile(X[var], 97.5)
+    weights = df['weight']
+    x_var = df[var] 
 
-    plt.hist(X[(y == 0)][var], bins=40, alpha=0.5, color='b', label='MC',range=(lim_min, lim_max),weights=weights[(y == 0)])
-    plt.hist(X[(y == 1)][var], bins=40, alpha=0.5, color='r', label='Data',range=(lim_min, lim_max),weights=weights[(y == 1)])
+    lim_min = np.percentile(x_var, 2.5)
+    lim_max = np.percentile(x_var, 97.5)
+
+    plt.hist(x_var, bins=40, alpha=0.5, color='b', label='Un-Weighted',range=(lim_min, lim_max))
+    plt.hist(x_var, bins=40, alpha=0.5, color='r', label='Weighted',range=(lim_min, lim_max),weights=weights)
     plt.legend()
-    plt.savefig('real_data_example_%s_before.pdf' % var)
+    plt.xlabel(var)
+    plt.savefig('df_checks_%s%s.pdf' % (var,extra_name))
     plt.close()
+
+Plot1DWtVsUnWt(df, 'kaplam')
+Plot1DWtVsUnWt(df, 'hh_mass')
+Plot1DWtVsUnWt(df[((df['kaplam']>0.9) & (df['kaplam']<1.1))], 'hh_mass', extra_name = 'kaplam_0p9To1p1')
+Plot1DWtVsUnWt(df[((df['kaplam']>9.) & (df['kaplam']<10.))], 'hh_mass', extra_name = 'kaplam_9To10')
+
+def Plot1DComponents(df, var, extra_name=''):
+
+    weights_box = df['wt_box']
+    weights_Sh = df['wt_schannel_h']
+    weights_int = df['wt_box_and_schannel_h_i']
+
+    weights_ave = (df['wt_box']*df['wt_schannel_h'])**.5 
+    x_var = df[var]
+
+    lim_min = np.percentile(x_var, 2.5)
+    lim_max = np.percentile(x_var, 97.5)
+
+    plt.hist(x_var, bins=40, alpha=0.5, histtype='step', color='b', label='Box',range=(lim_min, lim_max),weights=weights_box,density=True)
+    plt.hist(x_var, bins=40, alpha=0.5, histtype='step', color='r', label='S-channel',range=(lim_min, lim_max),weights=weights_Sh,density=True)
+    plt.hist(x_var, bins=40, alpha=0.5, histtype='step', color='g', label='Interference',range=(lim_min, lim_max),weights=weights_int,density=True)
+    plt.hist(x_var, bins=40, alpha=0.5, histtype='step', color='c', label='sqrt(Box*S)',range=(lim_min, lim_max),weights=weights_ave,density=True)
+    plt.legend()
+    plt.xlabel(var)
+    plt.savefig('df_checks_components_%s%s.pdf' % (var,extra_name))
+    plt.close()
+
+for var in ['hh_mass', 'hh_eta','hh_dphi','hh_deta','hh_dR','h1_pT','h2_pT','h1_eta','h2_eta']:
+    Plot1DComponents(df, var)
+
+
+# now we make some dataframes for binary classification of box and S-channel:
+# label = 0 will be box, label = 1 will be S-channel
+#df['label'] = np.random.uniform(-5, 10, size=len(df))
